@@ -156,6 +156,37 @@ struct img_tool {
         return {w_bar, h_bar};
     }
 
+    // calculate the size of the **resized** image, while preserving the aspect ratio,
+    // so that it fills (just under) a fixed pixel budget, upscaling small images and
+    // downscaling large ones. ref: transformers Gemma4ImageProcessor.get_aspect_ratio_preserving_size
+    static clip_image_size calc_size_fill_budget(const clip_image_size & inp_size, const int align_size, const int target_pixels) {
+        GGML_ASSERT(align_size > 0);
+        if (inp_size.width <= 0 || inp_size.height <= 0 || target_pixels <= 0) {
+            return {0, 0};
+        }
+        const double total_px = (double) inp_size.width * (double) inp_size.height;
+        const double factor   = std::sqrt((double) target_pixels / total_px);
+        auto floor_by = [f = align_size](double x) { return static_cast<int>(std::floor(x / f)) * f; };
+        int target_width  = floor_by(factor * inp_size.width);
+        int target_height = floor_by(factor * inp_size.height);
+        if (target_width <= 0 && target_height <= 0) {
+            // cannot happen in practice, but avoid a zero-sized image
+            return {align_size, align_size};
+        }
+        // extreme aspect ratios can floor one side to zero: raise it to one block and
+        // cap the other side so the result stays within the pixel budget (this mirrors
+        // the max_side_length logic in the reference implementation)
+        const int max_side = (target_pixels / (align_size * align_size)) * align_size;
+        if (target_width <= 0) {
+            target_width  = align_size;
+            target_height = std::min((inp_size.height / inp_size.width) * align_size, max_side);
+        } else if (target_height <= 0) {
+            target_height = align_size;
+            target_width  = std::min((inp_size.width / inp_size.height) * align_size, max_side);
+        }
+        return {target_width, target_height};
+    }
+
     // draw src image into dst image at offset (offset_x, offset_y)
     static void composite(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
         if (src.is_placeholder()) {
@@ -858,6 +889,28 @@ mtmd_image_preproc_out mtmd_image_preprocessor_glm5v::preprocess(const clip_imag
 
     mtmd_image_preproc_out output;
     output.append(hparams, canvas, true);
+    return output;
+}
+
+//
+// mtmd_image_preprocessor_gemma4
+//
+
+// gemma4 unified vision: aspect-ratio-preserving resize that always fills the soft-token
+// budget (image_max_pixels), aligned to patch_size*merge (48 px for gemma4uv, as the
+// token merging is folded into the patch embedding). ref: transformers
+// Gemma4ImageProcessor.aspect_ratio_preserving_resize
+mtmd_image_preproc_out mtmd_image_preprocessor_gemma4::preprocess(const clip_image_u8 & img) const {
+    GGML_ASSERT(hparams.image_max_pixels > 0);
+    clip_image_u8 resized_image;
+    const clip_image_size original_size = img.get_size();
+    const int cur_merge = hparams.n_merge == 0 ? 1 : hparams.n_merge;
+    const int align     = hparams.patch_size * cur_merge;
+    const clip_image_size target_size = img_tool::calc_size_fill_budget(
+        original_size, align, hparams.image_max_pixels);
+    img_tool::resize(img, resized_image, target_size, hparams.image_resize_algo, PAD_NONE);
+    mtmd_image_preproc_out output;
+    output.append(hparams, resized_image, true);
     return output;
 }
 

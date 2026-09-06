@@ -129,6 +129,14 @@ struct mtmd_image_preprocessor_glm5v : mtmd_image_preprocessor {
     mtmd_image_preproc_out preprocess(const clip_image_u8 & img) const override;
 };
 
+// resize image so it fills (just under) a fixed patch budget while preserving aspect
+// ratio, upscaling small images and downscaling large ones. used by gemma4 unified
+// vision, ref: transformers Gemma4ImageProcessor.aspect_ratio_preserving_resize
+struct mtmd_image_preprocessor_gemma4 : mtmd_image_preprocessor {
+    mtmd_image_preprocessor_gemma4(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) const override;
+};
+
 // similar to mtmd_image_preprocessor_dyn_size, but resize the image to have longest edge equal to hparams.image_longest_edge, while preserving aspect ratio
 struct mtmd_image_preprocessor_longest_edge : mtmd_image_preprocessor {
     mtmd_image_preprocessor_longest_edge(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
