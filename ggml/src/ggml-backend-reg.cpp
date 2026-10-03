@@ -118,7 +118,12 @@ struct ggml_backend_registry {
 
     ggml_backend_registry() {
 #ifdef GGML_USE_CUDA
+    // Add runtime disable check
+    if (getenv("GGML_DISABLE_CUDA") == nullptr) {
         register_backend(ggml_backend_cuda_reg());
+    } else {
+        GGML_LOG_DEBUG("CUDA backend disabled by GGML_DISABLE_CUDA environment variable\n");
+    }
 #endif
 #ifdef GGML_USE_METAL
         register_backend(ggml_backend_metal_reg());
